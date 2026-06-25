@@ -1,0 +1,55 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap');
+
+@import "tailwindcss";
+
+
+@theme {
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-heading: 'Outfit', system-ui, -apple-system, sans-serif;
+  
+  /* Institutional Colors */
+  --color-primary: #0B3C70;
+  --color-primary-hover: #072B53;
+  --color-secondary: #1D4ED8;
+  --color-secondary-hover: #1E40AF;
+  
+  /* Status Colors */
+  --color-status-available: #10B981;
+  --color-status-available-bg: #D1FAE5;
+  --color-status-loaned: #F59E0B;
+  --color-status-loaned-bg: #FEF3C7;
+  --color-status-overdue: #EF4444;
+  --color-status-overdue-bg: #FEE2E2;
+}
+
+/* Custom Scrollbar for premium dashboard feel */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #f8fafc;
+  color: #1e293b;
+  margin: 0;
+  padding: 0;
+}
+
+/* Transition for layout elements */
+.transition-layout {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
