@@ -19,36 +19,130 @@ export const Reports: React.FC = () => {
     setTimeout(() => setShowExportModal(null), 3000);
   };
 
-  // Mock analytical data
-  const facultyUsage = [
-    { faculty: 'Ingeniería y Tecnologías', percentage: 42, color: 'bg-primary' },
-    { faculty: 'Negocios y Administración', percentage: 28, color: 'bg-secondary' },
-    { faculty: 'Ciencias Sociales y Psicología', percentage: 20, color: 'bg-indigo-500' },
-    { faculty: 'Derecho y Leyes', percentage: 10, color: 'bg-slate-400' }
-  ];
+  // Dynamic analytical data derived from Supabase loans
+  const facultyCounts: Record<string, number> = {};
+  loans.forEach(loan => {
+    const key = loan.userCarrera || 'Otros';
+    facultyCounts[key] = (facultyCounts[key] || 0) + 1;
+  });
+  
+  const totalLoansCount = loans.length || 1;
+  const facultyUsage = Object.entries(facultyCounts).map(([faculty, count]) => {
+    const percentage = Math.round((count / totalLoansCount) * 100);
+    return {
+      faculty,
+      percentage,
+      color: faculty.includes('Sistemas') ? 'bg-primary' : faculty.includes('Administración') ? 'bg-secondary' : 'bg-indigo-500'
+    };
+  }).sort((a, b) => b.percentage - a.percentage);
 
-  const topBooks = [
-    { title: 'Física Universitaria Vol. 1', requests: 48, color: '#0B3C70' },
-    { title: 'Cálculo de una Variable', requests: 39, color: '#1D4ED8' },
-    { title: 'Fundamentos de Bases de Datos', requests: 29, color: '#6366f1' },
-    { title: 'Psicología del Desarrollo', requests: 25, color: '#818cf8' }
-  ];
+  const bookCounts: Record<string, number> = {};
+  loans.forEach(loan => {
+    bookCounts[loan.bookTitle] = (bookCounts[loan.bookTitle] || 0) + 1;
+  });
+  const topBooks = Object.entries(bookCounts)
+    .map(([title, requests]) => ({
+      title,
+      requests,
+      color: '#0B3C70'
+    }))
+    .sort((a, b) => b.requests - a.requests)
+    .slice(0, 4);
 
-  const monthlyLoans = [
-    { month: 'Ene', count: 120 },
-    { month: 'Feb', count: 180 },
-    { month: 'Mar', count: 240 },
-    { month: 'Abr', count: 310 },
-    { month: 'May', count: 290 },
-    { month: 'Jun', count: 342 }
-  ];
+  const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+  const monthlyCounts: Record<string, number> = {};
+  loans.forEach(loan => {
+    const date = new Date(loan.loanDate);
+    if (!isNaN(date.getTime())) {
+      const monthLabel = monthNames[date.getMonth()];
+      monthlyCounts[monthLabel] = (monthlyCounts[monthLabel] || 0) + 1;
+    }
+  });
 
-  const activeUsers = [
-    { name: 'Valeria Hernández H.', matricula: '017402', count: 8 },
-    { name: 'Patricio Ávila I.', matricula: '017497', count: 6 },
-    { name: 'Isidro Hernández O.', matricula: '017495', count: 5 },
-    { name: 'María Fernanda G.', matricula: '018210', count: 4 }
-  ];
+  const last6Months = [];
+  const today = new Date();
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+    const monthLabel = monthNames[d.getMonth()];
+    last6Months.push({
+      month: monthLabel,
+      count: monthlyCounts[monthLabel] || 0
+    });
+  }
+  const monthlyLoans = monthlyLoansCountCheck(monthlyCounts, last6Months);
+
+  function monthlyLoansCountCheck(counts: Record<string, number>, defaultMonths: any[]) {
+    if (Object.keys(counts).length === 0) {
+      return defaultMonths;
+    }
+    return defaultMonths;
+  }
+
+  const userCounts: Record<string, { name: string; count: number }> = {};
+  loans.forEach(loan => {
+    if (!userCounts[loan.userMatricula]) {
+      userCounts[loan.userMatricula] = { name: loan.userName, count: 0 };
+    }
+    userCounts[loan.userMatricula].count += 1;
+  });
+  const activeUsers = Object.entries(userCounts)
+    .map(([matricula, data]) => ({
+      name: data.name,
+      matricula,
+      count: data.count
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 4);
+
+  // Generate dynamic insights
+  const generateInsight = () => {
+    if (loans.length === 0) {
+      return {
+        title: "Sin actividad suficiente",
+        text: "El sistema no registra movimientos de circulación suficientes en Supabase para generar sugerencias analíticas de inventario todavía.",
+        iconColor: "text-blue-300"
+      };
+    }
+
+    const overdueCount = loans.filter(l => l.status === 'overdue').length;
+    if (overdueCount > 0) {
+      return {
+        title: "Boletas con retraso detectadas",
+        text: `Se detectan ${overdueCount} préstamos vencidos en el sistema actualmente. Recomendamos enviar correos recordatorios automáticos y verificar las multas pendientes en el panel de devoluciones antes de liberar nuevos préstamos.`,
+        iconColor: "text-red-300"
+      };
+    }
+
+    // Find major with most loans
+    const majorLoans: Record<string, number> = {};
+    loans.forEach(l => {
+      const key = l.userCarrera || 'Otros';
+      majorLoans[key] = (majorLoans[key] || 0) + 1;
+    });
+
+    const sortedMajors = Object.entries(majorLoans).sort((a, b) => b[1] - a[1]);
+    if (sortedMajors.length > 0) {
+      const [topMajor, count] = sortedMajors[0];
+      const percentage = Math.round((count / loans.length) * 100);
+      
+      const majorBook = loans.find(l => l.userCarrera === topMajor);
+      const bookSuggestion = majorBook ? `"${majorBook.bookTitle}"` : "los títulos de esta área";
+
+      return {
+        title: `Alta demanda en ${topMajor}`,
+        text: `La carrera con mayor demanda este periodo es ${topMajor} con el ${percentage}% de las salidas totales. Sugerimos colocar duplicados de ${bookSuggestion} en posiciones de fácil acceso rápido (Nivel 1 del estante correspondiente).`,
+        iconColor: "text-blue-300"
+      };
+    }
+
+    return {
+      title: "Funcionamiento del acervo estable",
+      text: "La circulación del inventario físico se mantiene dentro de los límites operativos estándar. No hay picos de demanda anormales detectados hoy.",
+      iconColor: "text-emerald-300"
+    };
+  };
+
+  const insight = generateInsight();
 
   return (
     <div className="space-y-8 text-left">
@@ -168,11 +262,11 @@ export const Reports: React.FC = () => {
       <div className="bg-primary text-white rounded-3xl p-6 shadow-md border border-primary-hover flex flex-col md:flex-row items-center gap-6 justify-between">
         <div className="space-y-2 flex-1">
           <div className="flex items-center gap-2">
-            <TrendingUp size={20} className="text-blue-300" />
-            <h3 className="font-heading font-bold text-lg">Conclusiones del Sistema (Insights Inteligentes)</h3>
+            <TrendingUp size={20} className={insight.iconColor} />
+            <h3 className="font-heading font-bold text-lg">Conclusiones del Sistema ({insight.title})</h3>
           </div>
           <p className="text-xs text-blue-100 leading-relaxed max-w-3xl">
-            El sistema detectó un aumento del 15% en préstamos de libros de Cálculo para el área de Ingeniería en Sistemas Computacionales durante este mes. Se recomienda colocar duplicados deJames Stewart en el nivel 1 del estante 1 para facilitar el acceso rápido del alumnado.
+            {insight.text}
           </p>
         </div>
         <div className="shrink-0 bg-white/10 px-4 py-2.5 rounded-xl border border-white/10 text-xs font-bold flex items-center gap-1">

@@ -48,11 +48,11 @@ export const Dashboard: React.FC = () => {
   const activeLoansCount = loans.filter(l => l.status === 'in_progress').length;
   const overdueCount = loans.filter(l => l.status === 'overdue').length;
 
-  // Values combined with the document counts to look realistic
-  const totalBooks = 12450 + books.length - 10; 
-  const totalUsers = 2891 + users.length - 5;
-  const loansDisplay = 342 + activeLoansCount - 2;
-  const overdueDisplay = 15 + overdueCount - 1;
+  // Actual counts directly from our Supabase store
+  const totalBooks = books.length;
+  const totalUsers = users.length;
+  const loansDisplay = activeLoansCount;
+  const overdueDisplay = overdueCount;
 
   // Handle Mock QR scanning
   const handleQRScanSubmit = (e: React.FormEvent) => {

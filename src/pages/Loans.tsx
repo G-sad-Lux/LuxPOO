@@ -24,6 +24,32 @@ export const Loans: React.FC = () => {
   const [returnSuccess, setReturnSuccess] = useState('');
   const [returnError, setReturnError] = useState('');
 
+  // Dynamic Suggestion Lists (Lazy Search starting at 3 characters)
+  const suggestedUsers = userQuery.trim().length >= 3
+    ? users.filter(u => 
+        u.name.toLowerCase().includes(userQuery.toLowerCase()) || 
+        u.matricula.toLowerCase().includes(userQuery.toLowerCase())
+      )
+    : [];
+
+  const suggestedBooks = bookQuery.trim().length >= 3
+    ? books.filter(b => 
+        b.title.toLowerCase().includes(bookQuery.toLowerCase()) || 
+        b.author.toLowerCase().includes(bookQuery.toLowerCase()) ||
+        b.id.toLowerCase().includes(bookQuery.toLowerCase())
+      )
+    : [];
+
+  const suggestedLoans = returnQuery.trim().length >= 3
+    ? loans.filter(l => 
+        l.status !== 'returned' &&
+        (l.id.toUpperCase().includes(returnQuery.toUpperCase()) || 
+         l.bookTitle.toLowerCase().includes(returnQuery.toLowerCase()) ||
+         l.userMatricula.toLowerCase().includes(returnQuery.toLowerCase()) ||
+         l.userName.toLowerCase().includes(returnQuery.toLowerCase()))
+      )
+    : [];
+
   // Step 1: Verify User matrícula
   const handleVerifyUser = (e: React.FormEvent) => {
     e.preventDefault();
@@ -209,18 +235,57 @@ export const Loans: React.FC = () => {
                       </div>
                       <input
                         type="text"
-                        placeholder="Ingresa matrícula (ej. 017497, 017495...)"
+                        placeholder="Ingresa matrícula o nombre (mín. 3 letras para autocompletar)"
                         value={userQuery}
-                        onChange={(e) => setUserQuery(e.target.value)}
+                        onChange={(e) => { setUserQuery(e.target.value); setWizardError(''); }}
                         className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-secondary/40 focus:border-secondary transition-all"
                         required
                       />
+
+                      {userQuery.trim().length > 0 && userQuery.trim().length < 3 && (
+                        <p className="text-[9px] text-amber-600 font-bold mt-1 animate-pulse">
+                          ⚠️ Mínimo 3 letras para sugerencias...
+                        </p>
+                      )}
+
+                      {suggestedUsers.length > 0 && (
+                        <div className="absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30 max-h-40 overflow-y-auto py-1 animate-in fade-in duration-100">
+                          {suggestedUsers.map(u => (
+                            <button
+                              key={u.matricula}
+                              type="button"
+                              onClick={() => {
+                                if (u.status === 'overdue') {
+                                  setWizardError('El usuario tiene adeudos de multas o libros vencidos. Préstamo BLOQUEADO.');
+                                  setSelectedUser(null);
+                                } else {
+                                  setSelectedUser(u);
+                                  setUserQuery(u.matricula);
+                                  setWizardError('');
+                                  setLoanStep(2);
+                                }
+                              }}
+                              className="w-full px-3 py-2 hover:bg-gray-50 text-left flex justify-between items-center text-xs cursor-pointer border-b border-gray-50 last:border-b-0"
+                            >
+                              <div>
+                                <p className="font-semibold text-gray-800">{u.name}</p>
+                                <p className="text-[10px] text-gray-400 font-mono">Matrícula: {u.matricula}</p>
+                              </div>
+                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full
+                                ${u.status === 'active' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}
+                              `}>
+                                {u.status === 'active' ? 'Activo' : 'Deudor'}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <button
                       type="submit"
                       className="px-4 py-2 bg-secondary hover:bg-secondary-hover text-white rounded-xl text-xs font-bold transition-all duration-150 cursor-pointer"
                     >
-                      Verificar Alumno
+                      Verificar
                     </button>
                   </div>
                 </div>
@@ -257,19 +322,58 @@ export const Loans: React.FC = () => {
                         </div>
                         <input
                           type="text"
-                          placeholder="Ingresa título o ISBN del libro (ej: Cálculo, James Stewart...)"
+                          placeholder="Ingresa título o ISBN del libro (mín. 3 letras para sugerencias)"
                           value={bookQuery}
-                          onChange={(e) => setBookQuery(e.target.value)}
+                          onChange={(e) => { setBookQuery(e.target.value); setWizardError(''); }}
                           className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-secondary/40 focus:border-secondary transition-all"
                           required
                           autoFocus
                         />
+
+                        {bookQuery.trim().length > 0 && bookQuery.trim().length < 3 && (
+                          <p className="text-[9px] text-amber-600 font-bold mt-1 animate-pulse">
+                            ⚠️ Mínimo 3 letras para sugerencias...
+                          </p>
+                        )}
+
+                        {suggestedBooks.length > 0 && (
+                          <div className="absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30 max-h-40 overflow-y-auto py-1 animate-in fade-in duration-100">
+                            {suggestedBooks.map(b => (
+                              <button
+                                key={b.id}
+                                type="button"
+                                onClick={() => {
+                                  if (b.status === 'loaned') {
+                                    setWizardError(`El material "${b.title}" se encuentra prestado actualmente.`);
+                                    setSelectedBook(null);
+                                  } else {
+                                    setSelectedBook(b);
+                                    setBookQuery(b.id);
+                                    setWizardError('');
+                                    setLoanStep(3);
+                                  }
+                                }}
+                                className="w-full px-3 py-2 hover:bg-gray-50 text-left flex justify-between items-center text-xs cursor-pointer border-b border-gray-50 last:border-b-0"
+                              >
+                                <div className="pr-2 flex-1 min-w-0">
+                                  <p className="font-semibold text-gray-800 truncate italic">{b.title}</p>
+                                  <p className="text-[10px] text-gray-400 truncate">{b.author} | ISBN: {b.id}</p>
+                                </div>
+                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0
+                                  ${b.status === 'available' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}
+                                `}>
+                                  {b.status === 'available' ? 'Disponible' : 'Prestado'}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <button
                         type="submit"
                         className="px-4 py-2 bg-secondary hover:bg-secondary-hover text-white rounded-xl text-xs font-bold transition-all duration-150 cursor-pointer"
                       >
-                        Buscar Material
+                        Buscar
                       </button>
                     </div>
                   </div>
@@ -295,7 +399,7 @@ export const Loans: React.FC = () => {
                 {/* Term Slider */}
                 <div className="space-y-3 bg-gray-50 p-4 rounded-2xl border border-gray-200">
                   <div className="flex justify-between items-center text-xs">
-                    <label className="font-bold text-gray-600 uppercase tracking-wider flex items-center gap-1">
+                    <label className="font-bold text-gray-600 uppercase tracking-wider flex items-center gap-1.5">
                       <Calendar size={14} className="text-gray-400" />
                       <span>Plazo del préstamo</span>
                     </label>
@@ -356,16 +460,57 @@ export const Loans: React.FC = () => {
 
           <form onSubmit={handleSearchReturn} className="space-y-3">
             <div className="space-y-1">
-              <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Folio / Matrícula / Libro ID</label>
+              <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Folio / Matrícula / Libro</label>
               <div className="relative">
                 <input
                   type="text"
                   placeholder="Ej: L-1003 o 017402"
                   value={returnQuery}
-                  onChange={(e) => setReturnQuery(e.target.value)}
+                  onChange={(e) => { setReturnQuery(e.target.value); setReturnError(''); }}
                   className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-secondary/40 focus:border-secondary bg-gray-50/50"
                   required
                 />
+                
+                {returnQuery.trim().length > 0 && returnQuery.trim().length < 3 && (
+                  <p className="text-[9px] text-amber-600 font-bold mt-1 animate-pulse">
+                    ⚠️ Mínimo 3 letras para sugerencias...
+                  </p>
+                )}
+
+                {suggestedLoans.length > 0 && (
+                  <div className="absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30 max-h-40 overflow-y-auto py-1 animate-in fade-in duration-100">
+                    {suggestedLoans.map(l => (
+                      <button
+                        key={l.id}
+                        type="button"
+                        onClick={() => {
+                          const today = new Date();
+                          const dueDate = new Date(l.dueDate);
+                          if (today > dueDate) {
+                            const diffTime = Math.abs(today.getTime() - dueDate.getTime());
+                            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                            l.fineAmount = diffDays * 45;
+                            l.status = 'overdue';
+                          }
+                          setFoundLoan(l);
+                          setReturnQuery(l.id);
+                        }}
+                        className="w-full px-3 py-2 hover:bg-gray-50 text-left flex flex-col gap-0.5 text-xs cursor-pointer border-b border-gray-50 last:border-b-0"
+                      >
+                        <div className="flex justify-between items-center w-full">
+                          <span className="font-bold text-primary font-mono text-[10px]">{l.id}</span>
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full
+                            ${l.status === 'overdue' ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}
+                          `}>
+                            {l.status === 'overdue' ? 'Atrasado' : 'En Curso'}
+                          </span>
+                        </div>
+                        <p className="font-semibold text-gray-800 truncate italic">{l.bookTitle}</p>
+                        <p className="text-[10px] text-gray-400 truncate">{l.userName} ({l.userMatricula})</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
             <button
@@ -423,4 +568,5 @@ export const Loans: React.FC = () => {
     </div>
   );
 };
+
 export default Loans;

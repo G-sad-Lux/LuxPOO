@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { User, Book, Loan, Activity } from '../types';
-import { INITIAL_USERS, INITIAL_BOOKS, INITIAL_LOANS, INITIAL_ACTIVITIES } from '../utils/mockData';
-
+import { supabase } from '../utils/supabaseClient';
 
 interface LibraryContextType {
   users: User[];
@@ -10,6 +9,7 @@ interface LibraryContextType {
   activities: Activity[];
   addUser: (user: Omit<User, 'loanCount' | 'status'>) => void;
   addBook: (book: Omit<Book, 'status'>) => void;
+  addBooks: (books: Omit<Book, 'status'>[]) => Promise<{ success: boolean; message: string }>;
   createLoan: (matricula: string, bookId: string, days: number) => { success: boolean; message: string };
   returnLoan: (loanId: string) => { success: boolean; message: string };
   renewLoan: (loanId: string, days: number) => { success: boolean; message: string };
@@ -19,47 +19,122 @@ interface LibraryContextType {
 
 const LibraryContext = createContext<LibraryContextType | undefined>(undefined);
 
+// Mappers to translate snake_case DB fields to camelCase TS interfaces
+const mapUserFromDB = (dbUser: any): User => ({
+  matricula: dbUser.matricula,
+  name: dbUser.name,
+  carrera: dbUser.carrera,
+  email: dbUser.email,
+  status: dbUser.status as 'active' | 'overdue',
+  photoUrl: dbUser.photo_url || undefined,
+  loanCount: dbUser.loan_count || 0,
+});
+
+const mapBookFromDB = (dbBook: any): Book => ({
+  id: dbBook.id,
+  title: dbBook.title,
+  author: dbBook.author,
+  year: Number(dbBook.year),
+  licenciatura: dbBook.licenciatura,
+  advisor: dbBook.advisor || undefined,
+  locationCode: dbBook.location_code,
+  status: dbBook.status as 'available' | 'loaned',
+});
+
+const mapLoanFromDB = (dbLoan: any): Loan => ({
+  id: dbLoan.id,
+  userMatricula: dbLoan.user_matricula,
+  userName: dbLoan.users?.name || 'Usuario desconocido',
+  userCarrera: dbLoan.users?.carrera || '',
+  bookId: dbLoan.book_id,
+  bookTitle: dbLoan.books?.title || 'Libro desconocido',
+  bookLocation: dbLoan.books?.location_code || '',
+  loanDate: dbLoan.loan_date,
+  dueDate: dbLoan.due_date,
+  returnDate: dbLoan.return_date || undefined,
+  status: dbLoan.status as 'returned' | 'in_progress' | 'overdue',
+  fineAmount: Number(dbLoan.fine_amount || 0),
+});
+
+const mapActivityFromDB = (dbAct: any): Activity => ({
+  id: dbAct.id,
+  type: dbAct.type as 'loan' | 'return' | 'user_register' | 'book_register',
+  userName: dbAct.user_name,
+  userMatricula: dbAct.user_matricula,
+  bookTitle: dbAct.book_title,
+  date: dbAct.date,
+  status: dbAct.status,
+});
+
 export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [users, setUsers] = useState<User[]>(() => {
-    const saved = localStorage.getItem('sgbu_users');
-    return saved ? JSON.parse(saved) : INITIAL_USERS;
-  });
-
-  const [books, setBooks] = useState<Book[]>(() => {
-    const saved = localStorage.getItem('sgbu_books');
-    return saved ? JSON.parse(saved) : INITIAL_BOOKS;
-  });
-
-  const [loans, setLoans] = useState<Loan[]>(() => {
-    const saved = localStorage.getItem('sgbu_loans');
-    return saved ? JSON.parse(saved) : INITIAL_LOANS;
-  });
-
-  const [activities, setActivities] = useState<Activity[]>(() => {
-    const saved = localStorage.getItem('sgbu_activities');
-    return saved ? JSON.parse(saved) : INITIAL_ACTIVITIES;
-  });
-
+  const [users, setUsers] = useState<User[]>([]);
+  const [books, setBooks] = useState<Book[]>([]);
+  const [loans, setLoans] = useState<Loan[]>([]);
+  const [activities, setActivities] = useState<Activity[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Persist states
-  useEffect(() => {
-    localStorage.setItem('sgbu_users', JSON.stringify(users));
-  }, [users]);
+  // Function to load all data from Supabase
+  const loadData = async () => {
+    try {
+      // 1. Fetch Users
+      const { data: dbUsers, error: usersError } = await supabase
+        .from('users')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (usersError) throw usersError;
 
-  useEffect(() => {
-    localStorage.setItem('sgbu_books', JSON.stringify(books));
-  }, [books]);
+      // 2. Fetch Books
+      const { data: dbBooks, error: booksError } = await supabase
+        .from('books')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (booksError) throw booksError;
 
-  useEffect(() => {
-    localStorage.setItem('sgbu_loans', JSON.stringify(loans));
-  }, [loans]);
+      // 3. Fetch Loans (with User and Book details joined)
+      const { data: dbLoans, error: loansError } = await supabase
+        .from('loans')
+        .select(`
+          *,
+          users (name, carrera),
+          books (title, location_code)
+        `)
+        .order('created_at', { ascending: false });
+      if (loansError) throw loansError;
 
-  useEffect(() => {
-    localStorage.setItem('sgbu_activities', JSON.stringify(activities));
-  }, [activities]);
+      // 4. Fetch Activities
+      const { data: dbActivities, error: activitiesError } = await supabase
+        .from('activities')
+        .select('*')
+        .order('date', { ascending: false });
+      if (activitiesError) throw activitiesError;
 
-  const addUser = (userData: Omit<User, 'loanCount' | 'status'>) => {
+      // Update state
+      setUsers((dbUsers || []).map(mapUserFromDB));
+      setBooks((dbBooks || []).map(mapBookFromDB));
+      setLoans((dbLoans || []).map(mapLoanFromDB));
+      setActivities((dbActivities || []).map(mapActivityFromDB));
+    } catch (err) {
+      console.error('Error loading library data from Supabase:', err);
+    }
+  };
+
+  // Load data on component mount
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const addUser = async (userData: Omit<User, 'loanCount' | 'status'>) => {
+    const newUserDB = {
+      matricula: userData.matricula,
+      name: userData.name,
+      carrera: userData.carrera,
+      email: userData.email,
+      photo_url: userData.photoUrl || null,
+      status: 'active',
+      loan_count: 0
+    };
+
+    // Optimistic local state update
     const newUser: User = {
       ...userData,
       status: 'active',
@@ -67,37 +142,104 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
     setUsers(prev => [newUser, ...prev]);
 
-    // Add activity
-    const newActivity: Activity = {
-      id: `ACT-${Date.now()}`,
-      type: 'user_register',
-      userName: userData.name,
-      userMatricula: userData.matricula,
-      bookTitle: 'Registro de nuevo usuario',
-      date: new Date().toISOString(),
-      status: 'Completado'
-    };
-    setActivities(prev => [newActivity, ...prev]);
+    try {
+      const { error: userError } = await supabase.from('users').insert(newUserDB);
+      if (userError) throw userError;
+
+      // Register activity
+      const newActivityDB = {
+        type: 'user_register',
+        user_name: userData.name,
+        user_matricula: userData.matricula,
+        book_title: 'Registro de nuevo usuario',
+        status: 'Completado'
+      };
+      await supabase.from('activities').insert(newActivityDB);
+    } catch (err) {
+      console.error('Error saving user in Supabase:', err);
+    } finally {
+      loadData();
+    }
   };
 
-  const addBook = (bookData: Omit<Book, 'status'>) => {
+  const addBook = async (bookData: Omit<Book, 'status'>) => {
+    const newBookDB = {
+      id: bookData.id,
+      title: bookData.title,
+      author: bookData.author,
+      year: bookData.year,
+      licenciatura: bookData.licenciatura,
+      advisor: bookData.advisor || null,
+      location_code: bookData.locationCode,
+      status: 'available'
+    };
+
+    // Optimistic local state update
     const newBook: Book = {
       ...bookData,
       status: 'available'
     };
     setBooks(prev => [newBook, ...prev]);
 
-    // Add activity
-    const newActivity: Activity = {
-      id: `ACT-${Date.now()}`,
-      type: 'book_register',
-      userName: 'Bibliotecaria Lux',
-      userMatricula: 'ADMIN',
-      bookTitle: bookData.title,
-      date: new Date().toISOString(),
-      status: 'Registrado'
-    };
-    setActivities(prev => [newActivity, ...prev]);
+    try {
+      const { error: bookError } = await supabase.from('books').insert(newBookDB);
+      if (bookError) throw bookError;
+
+      // Register activity
+      const newActivityDB = {
+        type: 'book_register',
+        user_name: 'Bibliotecaria Lux',
+        user_matricula: 'ADMIN',
+        book_title: bookData.title,
+        status: 'Registrado'
+      };
+      await supabase.from('activities').insert(newActivityDB);
+    } catch (err) {
+      console.error('Error saving book in Supabase:', err);
+    } finally {
+      loadData();
+    }
+  };
+
+  const addBooks = async (booksData: Omit<Book, 'status'>[]) => {
+    const newBooksDB = booksData.map(bookData => ({
+      id: bookData.id,
+      title: bookData.title,
+      author: bookData.author,
+      year: bookData.year,
+      licenciatura: bookData.licenciatura,
+      advisor: bookData.advisor || null,
+      location_code: bookData.locationCode,
+      status: 'available'
+    }));
+
+    // Optimistic local state update
+    const newBooks: Book[] = booksData.map(bookData => ({
+      ...bookData,
+      status: 'available'
+    }));
+    setBooks(prev => [...newBooks, ...prev]);
+
+    try {
+      const { error: booksError } = await supabase.from('books').insert(newBooksDB);
+      if (booksError) throw booksError;
+
+      // Register activity
+      const newActivityDB = {
+        type: 'book_register',
+        user_name: 'Bibliotecaria Lux',
+        user_matricula: 'ADMIN',
+        book_title: `Importación por lote de ${booksData.length} libros`,
+        status: 'Registrado'
+      };
+      await supabase.from('activities').insert(newActivityDB);
+      return { success: true, message: `¡${booksData.length} libros importados con éxito!` };
+    } catch (err: any) {
+      console.error('Error importing books in Supabase:', err);
+      return { success: false, message: err.message || 'Error al importar los libros.' };
+    } finally {
+      loadData();
+    }
   };
 
   const createLoan = (matricula: string, bookId: string, days: number) => {
@@ -119,7 +261,6 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return { success: false, message: 'El material ya se encuentra prestado actualmente.' };
     }
 
-    // Process loan
     const today = new Date();
     const dueDate = new Date();
     dueDate.setDate(today.getDate() + days);
@@ -131,40 +272,48 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return `${year}-${month}-${day}`;
     };
 
-    const newLoan: Loan = {
-      id: `L-${Date.now().toString().slice(-4)}`,
-      userMatricula: user.matricula,
-      userName: user.name,
-      userCarrera: user.carrera,
-      bookId: book.id,
-      bookTitle: book.title,
-      bookLocation: book.locationCode,
-      loanDate: formatLocalDate(today),
-      dueDate: formatLocalDate(dueDate),
-      status: 'in_progress',
-      fineAmount: 0
-    };
+    const loanId = `L-${Date.now().toString().slice(-4)}`;
 
-    // Update book status
-    setBooks(prev => prev.map(b => b.id === bookId ? { ...b, status: 'loaned' } : b));
-    
-    // Update user loan count
-    setUsers(prev => prev.map(u => u.matricula === matricula ? { ...u, loanCount: u.loanCount + 1 } : u));
+    // Background Async DB update
+    (async () => {
+      try {
+        const newLoanDB = {
+          id: loanId,
+          user_matricula: matricula,
+          book_id: bookId,
+          loan_date: formatLocalDate(today),
+          due_date: formatLocalDate(dueDate),
+          status: 'in_progress',
+          fine_amount: 0
+        };
 
-    // Register loan
-    setLoans(prev => [newLoan, ...prev]);
+        // 1. Insert loan
+        const { error: loanErr } = await supabase.from('loans').insert(newLoanDB);
+        if (loanErr) throw loanErr;
 
-    // Add activity
-    const newActivity: Activity = {
-      id: `ACT-${Date.now()}`,
-      type: 'loan',
-      userName: user.name,
-      userMatricula: user.matricula,
-      bookTitle: book.title,
-      date: new Date().toISOString(),
-      status: 'En Curso'
-    };
-    setActivities(prev => [newActivity, ...prev]);
+        // 2. Update book status to 'loaned'
+        const { error: bookErr } = await supabase.from('books').update({ status: 'loaned' }).eq('id', bookId);
+        if (bookErr) throw bookErr;
+
+        // 3. Update user loan count
+        const { error: userErr } = await supabase.from('users').update({ loan_count: user.loanCount + 1 }).eq('matricula', matricula);
+        if (userErr) throw userErr;
+
+        // 4. Register activity
+        const newActivityDB = {
+          type: 'loan',
+          user_name: user.name,
+          user_matricula: user.matricula,
+          book_title: book.title,
+          status: 'En Curso'
+        };
+        await supabase.from('activities').insert(newActivityDB);
+      } catch (err) {
+        console.error('Error creating loan in Supabase:', err);
+      } finally {
+        loadData();
+      }
+    })();
 
     return { success: true, message: `Préstamo registrado con éxito. Fecha de vencimiento: ${formatLocalDate(dueDate)}` };
   };
@@ -179,7 +328,6 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return { success: false, message: 'Este préstamo ya fue devuelto anteriormente.' };
     }
 
-    // Update loan status
     const today = new Date();
     const formatLocalDate = (date: Date) => {
       const year = date.getFullYear();
@@ -188,35 +336,62 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return `${year}-${month}-${day}`;
     };
 
-    setLoans(prev => prev.map(l => l.id === loanId ? { ...l, status: 'returned', returnDate: formatLocalDate(today) } : l));
+    const returnDateStr = formatLocalDate(today);
 
-    // Update book status
-    setBooks(prev => prev.map(b => b.id === loan.bookId ? { ...b, status: 'available' } : b));
+    // Background Async DB update
+    (async () => {
+      try {
+        // 1. Update loan status to returned
+        const { error: loanErr } = await supabase
+          .from('loans')
+          .update({
+            status: 'returned',
+            return_date: returnDateStr
+          })
+          .eq('id', loanId);
+        if (loanErr) throw loanErr;
 
-    // Update user loan count & status if necessary
-    setUsers(prev => prev.map(u => {
-      if (u.matricula === loan.userMatricula) {
-        const remainingLoans = loans.filter(l => l.userMatricula === u.matricula && l.id !== loanId && l.status === 'overdue');
-        return {
-          ...u,
-          loanCount: Math.max(0, u.loanCount - 1),
-          status: remainingLoans.length > 0 ? 'overdue' as const : 'active' as const
+        // 2. Update book status to available
+        const { error: bookErr } = await supabase
+          .from('books')
+          .update({ status: 'available' })
+          .eq('id', loan.bookId);
+        if (bookErr) throw bookErr;
+
+        // 3. Update user loan count and check status
+        const user = users.find(u => u.matricula === loan.userMatricula);
+        if (user) {
+          const remainingOverdue = loans.filter(
+            l => l.userMatricula === user.matricula && l.id !== loanId && l.status === 'overdue'
+          );
+          const newStatus = remainingOverdue.length > 0 ? 'overdue' : 'active';
+          const newLoanCount = Math.max(0, user.loanCount - 1);
+
+          const { error: userErr } = await supabase
+            .from('users')
+            .update({
+              loan_count: newLoanCount,
+              status: newStatus
+            })
+            .eq('matricula', user.matricula);
+          if (userErr) throw userErr;
+        }
+
+        // 4. Register activity
+        const newActivityDB = {
+          type: 'return',
+          user_name: loan.userName,
+          user_matricula: loan.userMatricula,
+          book_title: loan.bookTitle,
+          status: 'Devuelto'
         };
+        await supabase.from('activities').insert(newActivityDB);
+      } catch (err) {
+        console.error('Error returning loan in Supabase:', err);
+      } finally {
+        loadData();
       }
-      return u;
-    }));
-
-    // Add activity
-    const newActivity: Activity = {
-      id: `ACT-${Date.now()}`,
-      type: 'return',
-      userName: loan.userName,
-      userMatricula: loan.userMatricula,
-      bookTitle: loan.bookTitle,
-      date: new Date().toISOString(),
-      status: 'Devuelto'
-    };
-    setActivities(prev => [newActivity, ...prev]);
+    })();
 
     return { success: true, message: 'Devolución registrada con éxito. Material disponible de nuevo.' };
   };
@@ -242,21 +417,44 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return `${year}-${month}-${day}`;
     };
 
-    setLoans(prev => prev.map(l => l.id === loanId ? { ...l, dueDate: formatLocalDate(newDueDate), status: 'in_progress', fineAmount: 0 } : l));
+    const newDueDateStr = formatLocalDate(newDueDate);
 
-    // Also verify if the user's status should clear from overdue if they have no other overdue loans
-    setUsers(prev => prev.map(u => {
-      if (u.matricula === loan.userMatricula) {
-        const remainingOverdue = loans.filter(l => l.userMatricula === u.matricula && l.id !== loanId && l.status === 'overdue');
-        return {
-          ...u,
-          status: remainingOverdue.length > 0 ? 'overdue' as const : 'active' as const
-        };
+    // Background Async DB update
+    (async () => {
+      try {
+        // 1. Update loan in database
+        const { error: loanErr } = await supabase
+          .from('loans')
+          .update({
+            due_date: newDueDateStr,
+            status: 'in_progress',
+            fine_amount: 0
+          })
+          .eq('id', loanId);
+        if (loanErr) throw loanErr;
+
+        // 2. Clear user overdue status if they have no other overdue loans
+        const user = users.find(u => u.matricula === loan.userMatricula);
+        if (user) {
+          const remainingOverdue = loans.filter(
+            l => l.userMatricula === user.matricula && l.id !== loanId && l.status === 'overdue'
+          );
+          const newStatus = remainingOverdue.length > 0 ? 'overdue' : 'active';
+
+          const { error: userErr } = await supabase
+            .from('users')
+            .update({ status: newStatus })
+            .eq('matricula', user.matricula);
+          if (userErr) throw userErr;
+        }
+      } catch (err) {
+        console.error('Error renewing loan in Supabase:', err);
+      } finally {
+        loadData();
       }
-      return u;
-    }));
+    })();
 
-    return { success: true, message: `Renovación exitosa. Nueva fecha de entrega: ${formatLocalDate(newDueDate)}` };
+    return { success: true, message: `Renovación exitosa. Nueva fecha de entrega: ${newDueDateStr}` };
   };
 
   return (
@@ -267,6 +465,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       activities,
       addUser,
       addBook,
+      addBooks,
       createLoan,
       returnLoan,
       renewLoan,
@@ -285,3 +484,4 @@ export const useLibrary = () => {
   }
   return context;
 };
+

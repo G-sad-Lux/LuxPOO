@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MapPin, QrCode, Download, Printer, Database, FileText, CheckCircle2 } from 'lucide-react';
+import QRCode from 'qrcode';
 import { useLibrary } from '../hooks/useLibraryStore';
 
 export const Locations: React.FC = () => {
@@ -20,59 +21,21 @@ export const Locations: React.FC = () => {
   // Filter books in the selected location coordinate
   const locationBooks = books.filter(b => b.locationCode === selectedLoc);
 
-  // Render a mock QR code on Canvas offline
+  // Render a real scannable QR code containing the location code
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
 
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // Draw background
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Draw QR Code outer borders
-    ctx.strokeStyle = '#0B3C70';
-    ctx.lineWidth = 6;
-    ctx.strokeRect(10, 10, canvas.width - 20, canvas.height - 20);
-
-    // Render static QR code indicators (Finders)
-    const drawFinder = (x: number, y: number) => {
-      ctx.fillStyle = '#0B3C70';
-      ctx.fillRect(x, y, 35, 35);
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(x + 5, y + 5, 25, 25);
-      ctx.fillStyle = '#0B3C70';
-      ctx.fillRect(x + 10, y + 10, 15, 15);
-    };
-
-    drawFinder(20, 20); // Top-left
-    drawFinder(145, 20); // Top-right
-    drawFinder(20, 145); // Bottom-left
-
-    // Draw randomized modules using selectedLoc as seed
-    ctx.fillStyle = '#1e293b';
-    const size = 6; // module size
-    for (let r = 0; r < 20; r++) {
-      for (let c = 0; c < 20; c++) {
-        // Skip finder areas
-        if ((r < 7 && c < 7) || (r < 7 && c > 12) || (r > 12 && c < 7)) continue;
-        
-        // Random fill based on seeded random
-        if (Math.random() > 0.5) {
-          ctx.fillRect(20 + c * size, 20 + r * size, size, size);
-        }
+    QRCode.toCanvas(canvas, selectedLoc, {
+      width: 200,
+      margin: 2,
+      color: {
+        dark: '#0B3C70',  // Dark pixels (primary blue)
+        light: '#FFFFFF'  // Light background
       }
-    }
-
-    // Write location label in center or bottom of QR
-    ctx.fillStyle = '#0B3C70';
-    ctx.font = 'bold 12px Courier';
-    ctx.textAlign = 'center';
-    ctx.fillText(selectedLoc, canvas.width / 2, canvas.height - 18);
+    }, (error) => {
+      if (error) console.error('Error generating QR Code:', error);
+    });
   }, [selectedLoc]);
 
   // Download QR Code Simulation
